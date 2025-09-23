@@ -176,6 +176,10 @@ func main() {
 	cfg := configAgent.Config
 	o.client.SetDisabledClusters(sets.New[string](cfg().DisabledClusters...))
 
+	// Apply global censoring config to log formatter
+	globalConfig := cfg().Plank.GuessDefaultDecorationConfig("*", "*")
+	secret.UpdateCensoringConfigFromDecorationConfig(globalConfig)
+
 	restCfg, err := o.client.InfrastructureClusterConfig(o.dryrun)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to get kubeconfig")

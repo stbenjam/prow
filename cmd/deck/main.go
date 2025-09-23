@@ -62,6 +62,7 @@ import (
 	prowapi "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 	prowv1 "sigs.k8s.io/prow/pkg/client/clientset/versioned/typed/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/config"
+	"sigs.k8s.io/prow/pkg/config/secret"
 	"sigs.k8s.io/prow/pkg/deck/jobs"
 	prowflagutil "sigs.k8s.io/prow/pkg/flagutil"
 	configflagutil "sigs.k8s.io/prow/pkg/flagutil/config"
@@ -292,6 +293,10 @@ func main() {
 	cfg := configAgent.Config
 	disableClustersSet := sets.New[string](cfg().DisabledClusters...)
 	o.kubernetes.SetDisabledClusters(disableClustersSet)
+
+	// Apply global censoring config to log formatter
+	globalConfig := cfg().Plank.GuessDefaultDecorationConfig("*", "*")
+	secret.UpdateCensoringConfigFromDecorationConfig(globalConfig)
 
 	var pluginAgent *plugins.ConfigAgent
 	if o.pluginsConfig.PluginConfigPath != "" {

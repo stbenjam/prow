@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	prowapi "sigs.k8s.io/prow/pkg/apis/prowjobs/v1"
 	"sigs.k8s.io/prow/pkg/logrusutil"
 	"sigs.k8s.io/prow/pkg/secretutil"
 )
@@ -92,6 +93,20 @@ func GetTokenGenerator(secretPath string) func() []byte {
 
 func Censor(content []byte) []byte {
 	return secretAgent.Censor(content)
+}
+
+// UpdateCensoringConfig updates the global secret agent's censoring configuration.
+// This allows applying decoration config settings like MinimumSecretLength to the log formatter censor.
+func UpdateCensoringConfig(config *prowapi.CensoringOptions) {
+	secretAgent.UpdateCensoringConfig(config)
+}
+
+// UpdateCensoringConfigFromDecorationConfig is a convenience function that extracts
+// censoring options from a DecorationConfig and applies them to the log formatter censor.
+func UpdateCensoringConfigFromDecorationConfig(config *prowapi.DecorationConfig) {
+	if config != nil && config.CensoringOptions != nil {
+		UpdateCensoringConfig(config.CensoringOptions)
+	}
 }
 
 // agent watches a path and automatically loads the secrets stored.
@@ -180,4 +195,37 @@ func (a *agent) getSecrets() sets.Set[string] {
 		secrets.Insert(string(v.getRaw()))
 	}
 	return secrets
+}
+
+// UpdateCensoringConfig updates the censoring configuration of the agent and log formatter.
+// This allows applying decoration config settings like MinimumSecretLength to the log formatter censor.
+func (a *agent) UpdateCensoringConfig(config *prowapi.CensoringOptions) {
+	if config == nil {
+		return
+	}
+
+	minLength := 0
+	if config.MinimumSecretLength != nil {
+		minLength = *config.MinimumSecretLength
+	}
+
+	a.Lock()
+	// Create new censorer with the configured minimum secret length
+	newCensorer := secretutil.NewCensorerWithMinLength(minLength)
+
+	// Refresh it with current secrets
+	var secrets [][]byte
+	for _, value := range a.secretsMap {
+		secrets = append(secrets, value.getRaw())
+	}
+	newCensorer.RefreshBytes(secrets...)
+
+	// Update the censorer
+	a.ReloadingCensorer = newCensorer
+	a.Unlock()
+
+	// Update the log formatter to use the new censorer
+	logrus.SetFormatter(logrusutil.NewFormatterWithCensor(logrus.StandardLogger().Formatter, a.ReloadingCensorer))
+
+	logrus.WithField("minimum_secret_length", minLength).Debug("Updated log formatter censoring configuration")
 }
